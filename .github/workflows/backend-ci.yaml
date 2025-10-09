@@ -19,14 +19,14 @@ jobs:
       # Install deps (pipenv if Pipfile exists; else requirements.txt)
       - name: Install dependencies (backend)
         run: |
-          if [ -f backend/Pipfile ]; then
+          if [ -f starter/backend/Pipfile ]; then
             python -m pip install --upgrade pip pipenv
             cd backend
             pipenv install --dev
           else
             python -m pip install --upgrade pip
-            if [ -f backend/requirements.txt ]; then
-              python -m pip install -r backend/requirements.txt
+            if [ -f starter/backend/requirements.txt ]; then
+              python -m pip install -r starter/backend/requirements.txt
             fi
             # Ensure linters & test tools exist
             python -m pip install pytest pylint
@@ -35,7 +35,7 @@ jobs:
       # Lint (pipenv or direct)
       - name: Lint
         run: |
-          if [ -f backend/Pipfile ]; then
+          if [ -f starter/backend/Pipfile ]; then
             cd backend
             pipenv run pylint .
           else
@@ -52,21 +52,21 @@ jobs:
 
       - name: Install dependencies (backend)
         run: |
-          if [ -f backend/Pipfile ]; then
+          if [ -f starter/backend/Pipfile ]; then
             python -m pip install --upgrade pip pipenv
             cd backend
             pipenv install --dev
           else
             python -m pip install --upgrade pip
-            if [ -f backend/requirements.txt ]; then
-              python -m pip install -r backend/requirements.txt
+            if [ -f starter/backend/requirements.txt ]; then
+              python -m pip install -r starter/backend/requirements.txt
             fi
             python -m pip install pytest
           fi
 
       - name: Run tests
         run: |
-          if [ -f backend/Pipfile ]; then
+          if [ -f starter/backend/Pipfile ]; then
             cd backend
             pipenv run pytest
           else
@@ -79,4 +79,4 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Docker build (smoke)
-        run: docker build -t movie-backend:ci-test ./backend
+        run: docker build -t movie-backend:ci-test ./starter/backend

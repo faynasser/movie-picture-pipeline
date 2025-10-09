@@ -22,9 +22,9 @@ jobs:
         with:
           node-version: 18
       - run: npm ci
-        working-directory: frontend
+        working-directory: starter/frontend
       - run: npm run lint
-        working-directory: frontend
+        working-directory: starter/frontend
 
   test:
     runs-on: ubuntu-latest
@@ -34,9 +34,9 @@ jobs:
         with:
           node-version: 18
       - run: npm ci
-        working-directory: frontend
+        working-directory: starter/frontend
       - run: npm run test -- --watch=false
-        working-directory: frontend
+        working-directory: starter/frontend
 
   build_push_deploy:
     runs-on: ubuntu-latest
@@ -51,7 +51,7 @@ jobs:
         with:
           node-version: 18
       - run: npm ci && npm run build
-        working-directory: frontend
+        working-directory: starter/frontend
 
       - uses: aws-actions/configure-aws-credentials@v4
         with:
@@ -62,7 +62,7 @@ jobs:
 
       - name: Build and push
         run: |
-          docker build -t $env:ECR_REPOSITORY:$env:IMAGE_TAG ./frontend
+          docker build -t $env:ECR_REPOSITORY:$env:IMAGE_TAG ./starter/frontend
           docker tag $env:ECR_REPOSITORY:$env:IMAGE_TAG ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/$env:ECR_REPOSITORY:$env:IMAGE_TAG
           docker push ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/$env:ECR_REPOSITORY:$env:IMAGE_TAG
 
