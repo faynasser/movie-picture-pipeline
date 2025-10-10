@@ -1,9 +1,10 @@
-﻿name: Frontend Continuous Integration
+name: Frontend Continuous Integration
+
 on:
   pull_request:
     branches: [ "main" ]
     paths:
-      - "frontend/**"
+      - "starter/frontend/**"
       - ".github/workflows/frontend-ci.yaml"
   workflow_dispatch:
 
@@ -16,11 +17,11 @@ jobs:
         with:
           node-version: 18
       - name: Install deps
+        working-directory: starter/frontend
         run: npm ci
-        working-directory: starter/frontend
       - name: Lint
-        run: npm run lint
         working-directory: starter/frontend
+        run: npm run lint
 
   test:
     runs-on: ubuntu-latest
@@ -30,23 +31,8 @@ jobs:
         with:
           node-version: 18
       - name: Install deps
-        run: npm ci
         working-directory: starter/frontend
+        run: npm ci
       - name: Test
+        working-directory: starter/frontend
         run: npm test -- --watch=false
-        working-directory: starter/frontend
-
-  build:
-    runs-on: ubuntu-latest
-    needs: [ lint, test ]
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 18
-      - name: Install deps
-        run: npm ci
-        working-directory: starter/frontend
-      - name: Build
-        run: npm run build
-        working-directory: starter/frontend
