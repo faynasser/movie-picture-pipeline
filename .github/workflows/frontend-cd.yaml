@@ -1,9 +1,10 @@
-﻿name: Frontend Continuous Deployment
+name: Frontend Continuous Deployment
+
 on:
   push:
     branches: [ "main" ]
     paths:
-      - "frontend/**"
+      - "starter/frontend/**"
       - ".github/workflows/frontend-cd.yaml"
   workflow_dispatch:
 
@@ -11,6 +12,7 @@ env:
   AWS_REGION: us-east-1
   ECR_REPOSITORY: movie-frontend
   IMAGE_TAG: ${{ github.sha }}
+  CLUSTER_NAME: p3-cluster
   K8S_NAMESPACE: movie
 
 jobs:
@@ -21,10 +23,12 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 18
-      - run: npm ci
+      - name: Install deps
         working-directory: starter/frontend
-      - run: npm run lint
+        run: npm ci
+      - name: Lint
         working-directory: starter/frontend
+        run: npm run lint
 
   test:
     runs-on: ubuntu-latest
@@ -33,50 +37,82 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 18
-      - run: npm ci
+      - name: Install deps
         working-directory: starter/frontend
-      - run: npm run test -- --watch=false
+        run: npm ci
+      - name: Test
         working-directory: starter/frontend
+        run: npm test -- --watch=false
 
   build_push_deploy:
     runs-on: ubuntu-latest
-    needs: [ lint, test ]
+    needs: [lint, test]
     permissions:
       id-token: write
       contents: read
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 18
-      - run: npm ci && npm run build
-        working-directory: starter/frontend
-
-      - uses: aws-actions/configure-aws-credentials@v4
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ env.AWS_REGION }}
-      - uses: aws-actions/amazon-ecr-login@v2
 
-      - name: Build and push
+      - name: Ensure ECR repository exists
+        env:
+          REPO: ${{ env.ECR_REPOSITORY }}
         run: |
-          docker build -t $env:ECR_REPOSITORY:$env:IMAGE_TAG ./starter/frontend
-          docker tag $env:ECR_REPOSITORY:$env:IMAGE_TAG ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/$env:ECR_REPOSITORY:$env:IMAGE_TAG
-          docker push ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/$env:ECR_REPOSITORY:$env:IMAGE_TAG
+          aws ecr describe-repositories --repository-names "$REPO" >/dev/null 2>&1 || \
+          aws ecr create-repository --repository-name "$REPO"
 
-      - name: Install kubectl
+      - name: Login to Amazon ECR
+        uses: aws-actions/amazon-ecr-login@v2
+
+      # tools + kubeconfig to read backend service hostname
+      - name: Install kubectl & kustomize
         run: |
           curl -sSLO https://storage.googleapis.com/kubernetes-release/release/v1.29.6/bin/linux/amd64/kubectl
           chmod +x kubectl && sudo mv kubectl /usr/local/bin/kubectl
+          curl -sS https://raw.githubusercontent.com/kubernetes-sigs/kustomize/master/hack/install_kustomize.sh | bash
+          sudo mv kustomize /usr/local/bin/kustomize
 
-      - name: Set kubeconfig from secret
+      - name: Update kubeconfig
+        run: aws eks update-kubeconfig --name "${{ env.CLUSTER_NAME }}" --region "${{ env.AWS_REGION }}"
+
+      - name: Resolve backend API URL from Service
+        id: api
         run: |
-          echo "${{ secrets.KUBE_CONFIG_DATA }}" | base64 -d > $HOME/.kube/config
+          ns="${{ env.K8S_NAMESPACE }}"
+          svc="backend"
+          host=$(kubectl -n "$ns" get svc "$svc" -o jsonpath='{.status.loadBalancer.ingress[0].hostname}')
+          ip=$(kubectl -n "$ns" get svc "$svc" -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
+          endpoint=${host:-$ip}
+          echo "url=http://${endpoint}:5000" >> "$GITHUB_OUTPUT"
 
-      - run: kubectl get ns ${{ env.K8S_NAMESPACE }} || kubectl create ns ${{ env.K8S_NAMESPACE }}
-
-      - name: Set image on deployment
+      - name: Build & push image to ECR
+        working-directory: starter/frontend
+        env:
+          ACCOUNT: ${{ secrets.AWS_ACCOUNT_ID }}
+          API_URL: ${{ steps.api.outputs.url }}
         run: |
-          kubectl -n ${{ env.K8S_NAMESPACE }} set image deployment/movie-frontend movie-frontend=${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/${{ env.ECR_REPOSITORY }}:${{ env.IMAGE_TAG }}
+          echo "Using API URL: $API_URL"
+          docker build --build-arg REACT_APP_MOVIE_API_URL="$API_URL" \
+            -t ${{ env.ECR_REPOSITORY }}:${{ env.IMAGE_TAG }} .
+          docker tag  ${{ env.ECR_REPOSITORY }}:${{ env.IMAGE_TAG }} \
+            $ACCOUNT.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/${{ env.ECR_REPOSITORY }}:${{ env.IMAGE_TAG }}
+          docker push $ACCOUNT.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/${{ env.ECR_REPOSITORY }}:${{ env.IMAGE_TAG }}
+
+      - name: Ensure namespace exists
+        run: kubectl get ns "${{ env.K8S_NAMESPACE }}" || kubectl create ns "${{ env.K8S_NAMESPACE }}"
+
+      - name: Deploy with kustomize
+        working-directory: starter/frontend/k8s
+        env:
+          ACCOUNT: ${{ secrets.AWS_ACCOUNT_ID }}
+        run: |
+          kustomize edit set image frontend=$ACCOUNT.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/${{ env.ECR_REPOSITORY }}:${{ env.IMAGE_TAG }}
+          kustomize edit set namespace ${{ env.K8S_NAMESPACE }}
+          kustomize build | kubectl apply -f -
+
