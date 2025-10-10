@@ -10,9 +10,9 @@ on:
 
 env:
   AWS_REGION: us-east-1
-  ECR_REPOSITORY: movie-backend         # change if your ECR repo name differs
+  ECR_REPOSITORY: movie-backend
   IMAGE_TAG: ${{ github.sha }}
-  CLUSTER_NAME: udacity-project4        # change to your EKS cluster name
+  CLUSTER_NAME: p3-cluster      # <-- use your actual cluster name
   K8S_NAMESPACE: movie
 
 jobs:
@@ -95,7 +95,7 @@ jobs:
           chmod +x kubectl && sudo mv kubectl /usr/local/bin/kubectl
           curl -sS https://raw.githubusercontent.com/kubernetes-sigs/kustomize/master/hack/install_kustomize.sh | bash
           sudo mv kustomize /usr/local/bin/kustomize
-
+        
       - name: Update kubeconfig
         run: aws eks update-kubeconfig --name "${{ env.CLUSTER_NAME }}" --region "${{ env.AWS_REGION }}"
 
