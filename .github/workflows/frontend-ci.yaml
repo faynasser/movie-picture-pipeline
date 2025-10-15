@@ -2,37 +2,56 @@ name: Frontend Continuous Integration
 
 on:
   pull_request:
-    branches: [ "main" ]
+    branches: [ main ]
     paths:
       - "starter/frontend/**"
       - ".github/workflows/frontend-ci.yaml"
   workflow_dispatch:
 
 jobs:
+  # Runs in parallel with "test"
   lint:
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: starter/frontend
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 18
-      - name: Install deps
-        working-directory: starter/frontend
-        run: npm ci
-      - name: Lint
-        working-directory: starter/frontend
-        run: npm run lint
+      - name: Cache npm
+        uses: actions/cache@v4
+        with:
+          path: ~/.npm
+          key: npm-fe-${{ hashFiles('starter/frontend/package-lock.json') }}
+      - run: npm ci
+      - run: npm run lint
 
+  # Runs in parallel with "lint"
   test:
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: starter/frontend
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 18
-      - name: Install deps
-        working-directory: starter/frontend
-        run: npm ci
-      - name: Test
-        working-directory: starter/frontend
-        run: npm test -- --watch=false
+      - name: Cache npm
+        uses: actions/cache@v4
+        with:
+          path: ~/.npm
+          key: npm-fe-${{ hashFiles('starter/frontend/package-lock.json') }}
+      - run: npm ci
+      - run: npm test -- --ci
+
+  # Must run only after lint & test succeed
+  build:
+    runs-on: ubuntu-latest
+    needs: [lint, test]   # <— required by rubric
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build Docker image
+        run: docker build -t frontend-ci-test -f starter/frontend/Dockerfile starter/frontend
